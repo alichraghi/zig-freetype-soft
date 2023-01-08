@@ -4,6 +4,6 @@
 [submodule "libs/mach-freetype"]
 	path = libs/mach-freetype
 	url = https://github.com/hexops/mach-freetype
-[submodule "libs/zgl"]
-	path = libs/zgl
-	url = https://github.com/ziglibs/zgl
+[submodule "libs/zwl"]
+	path = libs/zwl
+	url = https://github.com/Aransentin/ZWL
