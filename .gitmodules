@@ -10,3 +10,6 @@
 [submodule "libs/zigwin32"]
 	path = libs/zigwin32
 	url = https://github.com/marlersoft/zigwin32
+[submodule "libs/SDL.zig"]
+	path = libs/SDL.zig
+	url = https://github.com/MasterQ32/SDL.zig

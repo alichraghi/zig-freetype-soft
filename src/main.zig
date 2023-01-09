@@ -1,159 +1,149 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const win32 = @import("win32").everything;
 const freetype = @import("freetype");
-const gl = @import("gl4v3.zig");
+const sdl = @import("sdl");
 
 const firasans = @embedFile("assets/firasans.ttf");
-const vert_shader = @embedFile("vertex.glsl");
-const frag_shader = @embedFile("frag.glsl");
 
-const WIDTH = 800;
-const HEIGHT = 640;
+const default_width = 1200;
+const default_height = 480;
 
-var chars: [128]freetype.GlyphSlot = undefined;
-var vao: u32 = 0;
-var vbo: u32 = 0;
-var program: u32 = 0;
-var memory_dc: win32.HDC = undefined;
-
-fn windowProc(hwnd: win32.HWND, uMsg: u32, wParam: win32.WPARAM, lParam: win32.LPARAM) callconv(std.os.windows.WINAPI) win32.LRESULT {
-    switch (uMsg) {
-        win32.WM_DESTROY => {
-            win32.PostQuitMessage(0);
-            return 0;
-        },
-        win32.WM_PAINT => {
-            var ps: win32.PAINTSTRUCT = undefined;
-            const hdc = win32.BeginPaint(hwnd, &ps);
-            _ = win32.BitBlt(memory_dc, 10, 10, 100, 100, hdc, 0, 0, .SRCCOPY);
-            _ = win32.EndPaint(hwnd, &ps);
-            return 0;
-        },
-        else => {},
-    }
-
-    return win32.DefWindowProcA(hwnd, uMsg, wParam, lParam);
-}
-const class_name = "Hello";
+var renderer: *sdl.SDL_Renderer = undefined;
+var ft_lib: freetype.Library = undefined;
+var face: freetype.Face = undefined;
 
 pub fn main() !void {
-    // Create window
-    const instance = @ptrCast(win32.HINSTANCE, win32.GetModuleHandleW(null) orelse unreachable);
+    if (sdl.SDL_Init(sdl.SDL_INIT_VIDEO | sdl.SDL_INIT_EVENTS | sdl.SDL_INIT_AUDIO) < 0)
+        sdlPanic();
+    defer sdl.SDL_Quit();
 
-    const wc = win32.WNDCLASSA{
-        .style = win32.WNDCLASS_STYLES.initFlags(.{
-            .OWNDC = 1,
-            .HREDRAW = 1,
-            .VREDRAW = 1,
-        }),
-        .lpfnWndProc = windowProc,
-        .cbClsExtra = 0,
-        .cbWndExtra = 0,
-        .hInstance = instance,
-        .hIcon = null,
-        .hCursor = null,
-        .hbrBackground = null,
-        .lpszMenuName = null,
-        .lpszClassName = class_name,
-    };
-    _ = win32.RegisterClassA(&wc);
+    var window = sdl.SDL_CreateWindow(
+        "SDL2 Native Demo",
+        sdl.SDL_WINDOWPOS_CENTERED,
+        sdl.SDL_WINDOWPOS_CENTERED,
+        default_width,
+        default_height,
+        sdl.SDL_WINDOW_SHOWN,
+    ) orelse sdlPanic();
+    defer _ = sdl.SDL_DestroyWindow(window);
 
-    const hwnd = win32.CreateWindowExA(
-        win32.WINDOW_EX_STYLE.initFlags(.{}),
-        class_name,
-        "Hello",
-        win32.WINDOW_STYLE.initFlags(.{
-            .THICKFRAME = 1,
-            .SYSMENU = 1,
-            .MINIMIZE = 1,
-            .MAXIMIZE = 1,
-        }),
-        win32.CW_USEDEFAULT,
-        win32.CW_USEDEFAULT,
-        WIDTH,
-        HEIGHT,
-        null,
-        null,
-        instance,
-        null,
-    ) orelse unreachable;
-    _ = win32.ShowWindow(hwnd, .SHOWNORMAL);
+    renderer = sdl.SDL_CreateRenderer(window, -1, sdl.SDL_RENDERER_SOFTWARE) orelse sdlPanic();
+    defer _ = sdl.SDL_DestroyRenderer(renderer);
 
-    // Load and create ASCII characters texture
-    try loadCharacters();
-
-    var bmi = std.mem.zeroes(win32.BITMAPINFO);
-    bmi.bmiHeader.biSize = @sizeOf(win32.BITMAPINFOHEADER);
-    bmi.bmiHeader.biWidth = 100;
-    bmi.bmiHeader.biHeight = -@as(i32, 100);
-    bmi.bmiHeader.biPlanes = 1;
-    bmi.bmiHeader.biBitCount = 32;
-    bmi.bmiHeader.biCompression = win32.BI_RGB;
-    var pixels: ?[*]u8 = null;
-    const hDC = win32.GetDC(hwnd) orelse unreachable;
-
-    memory_dc = win32.CreateCompatibleDC(hDC);
-    errdefer _ = win32.DeleteDC(memory_dc);
-
-    _ = win32.CreateDIBSection(
-        hDC,
-        &bmi,
-        .RGB_COLORS,
-        @ptrCast(*?*anyopaque, &pixels),
-        null,
-        0,
-    ) orelse unreachable;
-    _ = win32.ReleaseDC(hwnd, hDC);
-
-    var i: usize = 0;
-    while (i < 100 * 100 * 3) : (i += 3) {
-        pixels.?[i] = 255;
-        pixels.?[i + 1] = 0;
-        pixels.?[i + 2] = 0;
-    }
-
-    // Run the message loop.
-    var msg: win32.MSG = undefined;
-    while (win32.GetMessageA(&msg, null, 0, 0) != 0) {
-        _ = win32.TranslateMessage(&msg);
-        _ = win32.DispatchMessageA(&msg);
-
-        renderText("Hello Stephen!", -0.5, 0, 2.0 / @as(f32, WIDTH), .{ 1, 0.8, 0 });
-        renderText("Hello Stephen!", -0.2, 0.2, 2.0 / @as(f32, HEIGHT), .{ 1, 0.8, 0 });
-
-        // Limit to 60fps
-        std.time.sleep(16 * std.time.ns_per_ms);
-    }
-}
-
-fn renderText(text: []const u8, x: f32, y: f32, scale: f32, color: [3]f32) void {
-    _ = color;
-    var c_x = x;
-    var c_y = y;
-    for (text) |c| {
-        const char = chars[c];
-
-        // const vx = c_x + @intToFloat(f32, char.left) * scale;
-        // const vy = c_y + @intToFloat(f32, char.top) * scale;
-        // const w = @intToFloat(f32, char.width) * scale;
-        // const h = @intToFloat(f32, char.rows) * scale;
-
-        c_x += @intToFloat(f32, char.advance().x >> 6) * scale;
-        c_y += @intToFloat(f32, char.advance().y >> 6) * scale;
-    }
-}
-
-fn loadCharacters() !void {
-    const ft_lib = try freetype.Library.init();
+    ft_lib = try freetype.Library.init();
     defer ft_lib.deinit();
-    const face = try ft_lib.createFaceMemory(firasans, 0);
+    face = try ft_lib.createFaceMemory(firasans, 0);
     defer face.deinit();
 
-    try face.setPixelSizes(0, 48);
+    while (true) {
+        var ev: sdl.SDL_Event = undefined;
+        while (sdl.SDL_PollEvent(&ev) != 0) {
+            if (ev.type == sdl.SDL_QUIT)
+                return;
+        }
 
-    for (chars) |*c, i| {
-        try face.loadChar(@intCast(u8, i), .{ .render = true });
-        c.* = face.glyph();
+        _ = sdl.SDL_SetRenderDrawColor(renderer, 0x00, 0x00, 0x00, 0xff);
+        _ = sdl.SDL_RenderClear(renderer);
+
+        try drawText("gAklpq", 50, 50, sdl.SDL_Color{ .r = 255, .g = 200, .b = 0, .a = 255 });
+        sdl.SDL_RenderPresent(renderer);
+
+        _ = sdl.SDL_Delay(10);
     }
+}
+
+const SpanAdditionData = struct {
+    color: sdl.SDL_Color,
+    dest: sdl.SDL_Rect,
+};
+
+fn drawSpansCallback(y: c_int, count: c_int, spans: [*]const freetype.Span, user: *anyopaque) callconv(.C) void {
+    const addl = @ptrCast(*SpanAdditionData, @alignCast(@alignOf(*SpanAdditionData), user));
+    var i: usize = 0;
+    while (i < count) : (i += 1) {
+        const x_start = addl.dest.x + spans[i].x;
+        const x_end = x_start + spans[i].len;
+        const line_y = addl.dest.h - y;
+
+        _ = sdl.SDL_SetRenderDrawColor(renderer, addl.color.r, addl.color.g, addl.color.b, spans[i].coverage);
+        _ = sdl.SDL_RenderDrawLine(renderer, x_start, line_y, x_end, line_y);
+    }
+}
+
+fn drawText(text: []const u8, x: i32, y: i32, color: sdl.SDL_Color) !void {
+    var addl = SpanAdditionData{
+        .dest = .{
+            .x = 0,
+            .y = 0,
+            .w = 0,
+            .h = 0,
+        },
+        .color = color,
+    };
+
+    try face.setPixelSizes(0, 72);
+
+    const rect_w = face.size().metrics().x_ppem * @intCast(c_int, text.len);
+    const rect_h = face.size().metrics().y_ppem + -(face.bbox().yMin >> 6);
+
+    const currentTarget = sdl.SDL_GetRenderTarget(renderer);
+    const target = sdl.SDL_CreateTexture(renderer, sdl.SDL_PIXELFORMAT_RGBA8888, sdl.SDL_TEXTUREACCESS_TARGET, rect_w, rect_h);
+    _ = sdl.SDL_SetRenderTarget(renderer, target);
+    _ = sdl.SDL_SetRenderDrawBlendMode(renderer, sdl.SDL_BLENDMODE_BLEND);
+
+    for (text) |c| {
+        try face.loadChar(c, .{ .no_bitmap = true });
+        const glyph = face.glyph();
+
+        addl.dest.h = (face.size().metrics().ascender) >> 6;
+
+        std.debug.assert(face.glyph().format() == .outline);
+        var params = freetype.Raster.Params{
+            .target = undefined,
+            .source = undefined,
+            .flags = @bitCast(c_int, freetype.Raster.Flags{ .aa = true, .direct = true }),
+            .gray_spans = drawSpansCallback,
+            .user = &addl,
+            .clip_box = .{
+                .xMin = 0,
+                .yMin = 0,
+                .xMax = 0,
+                .yMax = 0,
+            },
+        };
+        try ft_lib.renderOutline(face.glyph().outline() orelse unreachable, &params);
+
+        addl.dest.x += glyph.advance().x >> 6;
+    }
+
+    var rect = sdl.SDL_Rect{
+        .x = x,
+        .y = y,
+        .w = rect_w,
+        .h = rect_h,
+    };
+    _ = sdl.SDL_SetRenderTarget(renderer, currentTarget);
+    _ = sdl.SDL_SetRenderDrawColor(renderer, 0xff, 0xff, 0xff, 0xff);
+    _ = sdl.SDL_RenderDrawRect(renderer, &rect);
+
+    _ = sdl.SDL_SetTextureBlendMode(target, sdl.SDL_BLENDMODE_BLEND);
+
+    _ = sdl.SDL_RenderCopyEx(renderer, target, null, &rect, 0, null, sdl.SDL_FLIP_NONE);
+}
+
+// fn loadCharacters() !void {
+//     try face.setPixelSizes(0, 48);
+
+//     for (chars) |*c, i| {
+//         try face.loadChar(@intCast(u8, i), .{ .render = true });
+//         c.* = .{
+//             .bitmap = face.glyph().bitmap(),
+//             .advance = face.glyph().advance(),
+//         };
+//     }
+// }
+
+fn sdlPanic() noreturn {
+    const str = @as(?[*:0]const u8, sdl.SDL_GetError()) orelse "unknown error";
+    @panic(std.mem.sliceTo(str, 0));
 }
