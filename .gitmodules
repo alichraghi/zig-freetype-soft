@@ -7,3 +7,6 @@
 [submodule "libs/zwl"]
 	path = libs/zwl
 	url = https://github.com/Aransentin/ZWL
+[submodule "libs/zigwin32"]
+	path = libs/zigwin32
+	url = https://github.com/marlersoft/zigwin32

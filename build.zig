@@ -1,14 +1,8 @@
 const std = @import("std");
 const freetype = @import("libs/mach-freetype/build.zig");
 const zwl_pkg = std.build.Pkg{
-    .name = "zwl",
-    .source = .{ .path = "libs/zwl/src/zwl.zig" },
-    .dependencies = &.{
-        .{
-            .name = "win32",
-            .source = .{ .path = "libs/zwl/libs/zigwin32/win32.zig" },
-        },
-    },
+    .name = "win32",
+    .source = .{ .path = "libs/zigwin32/win32.zig" },
 };
 
 pub fn build(b: *std.build.Builder) !void {
