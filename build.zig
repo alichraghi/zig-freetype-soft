@@ -1,9 +1,6 @@
 const std = @import("std");
 const freetype = @import("libs/mach-freetype/build.zig");
-const zwl_pkg = std.build.Pkg{
-    .name = "win32",
-    .source = .{ .path = "libs/zigwin32/win32.zig" },
-};
+const sdl = @import("libs/SDL.zig/Sdk.zig");
 
 pub fn build(b: *std.build.Builder) !void {
     const target = b.standardTargetOptions(.{});
@@ -13,10 +10,13 @@ pub fn build(b: *std.build.Builder) !void {
     exe.setTarget(target);
     exe.setBuildMode(mode);
     exe.install();
-    exe.addPackage(zwl_pkg);
+    var sdk = sdl.init(b);
+    exe.addPackage(sdk.getNativePackage("sdl"));
+    sdk.link(exe, .static);
 
     freetype.link(b, exe, .{});
     exe.addPackage(freetype.pkg(b));
+    exe.addPackage(freetype.harfbuzz_pkg(b));
 
     const run_cmd = exe.run();
     run_cmd.step.dependOn(b.getInstallStep());

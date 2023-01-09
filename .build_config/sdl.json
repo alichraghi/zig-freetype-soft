@@ -1,0 +1,12 @@
+{
+  "x86_64-windows-gnu": {
+    "include": "sdk/include",    
+    "libs": "sdk/lib",
+    "bin": "sdk/bin"
+  },
+  "x86_64-linux-gnu": {
+    "include": "sdk/include",    
+    "libs": "sdk/lib",
+    "bin": "sdk/bin"
+  }
+}
