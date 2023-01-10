@@ -14,7 +14,7 @@ pub fn build(b: *std.build.Builder) !void {
     exe.addPackage(sdk.getNativePackage("sdl"));
     sdk.link(exe, .static);
 
-    freetype.link(b, exe, .{});
+    freetype.link(b, exe, .{ .harfbuzz = .{} });
     exe.addPackage(freetype.pkg(b));
     exe.addPackage(freetype.harfbuzz_pkg(b));
 

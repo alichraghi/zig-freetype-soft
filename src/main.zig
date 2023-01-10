@@ -1,14 +1,16 @@
 const std = @import("std");
-const freetype = @import("freetype");
 const sdl = @import("sdl");
+const freetype = @import("freetype");
+const harfbuzz = @import("harfbuzz");
 
-const firasans = @embedFile("assets/firasans.ttf");
-const default_width = 1200;
+const firasans = @embedFile("assets/Vazirmatn-Regular.ttf");
+const default_width = 640;
 const default_height = 480;
 
 var renderer: *sdl.SDL_Renderer = undefined;
 var ft_lib: freetype.Library = undefined;
 var face: freetype.Face = undefined;
+var hb_font: harfbuzz.Font = undefined;
 
 pub fn main() !void {
     // Create window
@@ -29,13 +31,15 @@ pub fn main() !void {
     renderer = sdl.SDL_CreateRenderer(window, -1, sdl.SDL_RENDERER_SOFTWARE) orelse unreachable;
     defer _ = sdl.SDL_DestroyRenderer(renderer);
 
-    // Initialize freetype
+    // Initialize freetype/harfbuzz
     ft_lib = try freetype.Library.init();
     defer ft_lib.deinit();
     face = try ft_lib.createFaceMemory(firasans, 0);
     defer face.deinit();
-
     try face.setPixelSizes(0, 72);
+
+    hb_font = harfbuzz.Font.fromFreetypeFace(face);
+    defer hb_font.deinit();
 
     // Main loop
     while (true) {
@@ -47,7 +51,8 @@ pub fn main() !void {
         _ = sdl.SDL_SetRenderDrawColor(renderer, 0x00, 0x00, 0x00, 0xff);
         _ = sdl.SDL_RenderClear(renderer);
 
-        try drawText("Hello Ziguanas!", 50, 50, sdl.SDL_Color{ .r = 255, .g = 200, .b = 0, .a = 255 });
+        try drawText("حرف باز", 50, 50, sdl.SDL_Color{ .r = 255, .g = 200, .b = 0, .a = 255 }, .rtl, .arabic);
+        try drawText("Harfbuzz", 50, 150, sdl.SDL_Color{ .r = 0, .g = 200, .b = 255, .a = 255 }, .ltr, .common);
 
         sdl.SDL_RenderPresent(renderer);
         _ = sdl.SDL_Delay(16); // limit to 60fps
@@ -60,10 +65,20 @@ const GlyphData = struct {
     y: i32,
 };
 
-fn drawText(text: []const u8, x: i32, y: i32, color: sdl.SDL_Color) !void {
+fn drawText(text: []const u8, x: i32, y: i32, color: sdl.SDL_Color, dir: harfbuzz.Direction, script: harfbuzz.Script) !void {
+    var buffer = harfbuzz.Buffer.init() orelse unreachable;
+    defer buffer.deinit();
+    buffer.addUTF8(text, 0, @intCast(u31, text.len));
+    buffer.setDirection(dir);
+    buffer.setScript(script);
+    hb_font.shape(buffer, null);
+
+    const glyph_infos = buffer.getGlyphInfos();
+    const glyph_positions = buffer.getGlyphPositions() orelse unreachable;
+
     var glyph_data = GlyphData{
-        .x = x,
-        .y = y,
+        .x = x + glyph_positions[0].x_offset,
+        .y = y + glyph_positions[0].y_offset,
         .color = color,
     };
 
@@ -77,10 +92,10 @@ fn drawText(text: []const u8, x: i32, y: i32, color: sdl.SDL_Color) !void {
     };
 
     _ = sdl.SDL_SetRenderDrawBlendMode(renderer, sdl.SDL_BLENDMODE_BLEND);
-    for (text) |c| {
-        try face.loadChar(c, .{ .no_bitmap = true });
+    for (glyph_infos) |info, i| {
+        try face.loadGlyph(info.codepoint, .{ .no_bitmap = true });
         try ft_lib.renderOutline(face.glyph().outline() orelse unreachable, &raster_params);
-        glyph_data.x += face.glyph().advance().x >> 6;
+        glyph_data.x += glyph_positions[i].x_advance >> 6;
     }
 }
 
